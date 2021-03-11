@@ -17,7 +17,7 @@ go(function () {
     $config->setMetadataBrokerList('127.0.0.1:9092,127.0.0.1:9093');
     $config->setBrokerVersion('0.10.0');
     $config->setRequiredAck(1);
-    $kafka = new Kafka($config);
+    $kafka = new \EasySwoole\Kafka\Queue($config);
     $result = $kafka->producer()->send([
         [
         'topic' => 'test',

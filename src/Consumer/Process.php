@@ -8,13 +8,12 @@
 
 namespace EasySwoole\Kafka\Consumer;
 
-use EasySwoole\Component\WaitGroup;
-use Swoole\Coroutine;
+use EasySwoole\Kafka;
 use EasySwoole\Kafka\BaseProcess;
 use EasySwoole\Kafka\Config\ConsumerConfig;
 use EasySwoole\Kafka\Exception;
 use EasySwoole\Kafka\Protocol;
-use EasySwoole\Kafka;
+use Swoole\Coroutine;
 
 
 class Process extends BaseProcess
@@ -23,6 +22,11 @@ class Process extends BaseProcess
      * @var callable|null
      */
     protected $consumer;
+
+    /**
+     * @var callable|null
+     */
+    protected $retryCallable;
 
     /**
      * @var string[][][]
@@ -60,12 +64,12 @@ class Process extends BaseProcess
 
     private $enableListen = false;
 
-    public function __construct(ConsumerConfig $config)
+    public function __construct (ConsumerConfig $config)
     {
         parent::__construct($config);
     }
 
-    public function stop()
+    public function stop ()
     {
         $this->enableListen = false;
         return $this;
@@ -73,55 +77,83 @@ class Process extends BaseProcess
 
     /**
      * @param callable|null $consumer
-     * @param float $breakTime
-     * @param int $maxCurrency
+     * @param float         $breakTime
+     * @param int           $maxCurrency
+     * @param callable|null $retryCallable
      * @throws \Throwable
      */
-    public function subscribe(?callable $consumer = null, $breakTime = 0.01, $maxCurrency = 128)
+    public function subscribe (?callable $consumer = null, $breakTime = 0.01, $maxCurrency = 128, ?callable $retryCallable = null)
     {
         // 注册消费回调
         $this->consumer = $consumer;
+        if (is_callable($retryCallable)) {
+            $this->retryCallable = $retryCallable;
+        }
 
         $this->enableListen = true;
-        $running = 0;
+        $running            = 0;
 
         while ($this->enableListen) {
             if ($running >= $maxCurrency) {
                 Coroutine::sleep($breakTime);
                 continue;
             }
-            try {
-                ++$running;
-                if ($this->getAssignment()->isJoinFuture()) {
-                    $this->syncMeta();
+            $this->do($running, $this->config->getRetryTimes());
+        }
+    }
 
-                    $this->getGroupNodeId();
+    /**
+     * @param int $running
+     * @param int $retryTimes
+     * @throws Exception\ConnectionException
+     * @throws Exception\ErrorCodeException
+     * @throws Exception\Exception
+     */
+    public function do(int &$running, int $retryTimes) {
+        $isAutoRetry = $this->config->getAutoRetry();
+        try {
+            ++$running;
+            if ($this->getAssignment()->isJoinFuture()) {
+                $this->syncMeta();
 
-                    $this->initiateJoinGroup();
-                }
+                $this->getGroupNodeId();
 
-                $this->heartbeat();
-
-                $this->getListOffset();
-
-                $this->fetchOffset();
-
-                $fetchMessage = $this->fetchMsg();
-
-                $this->commit();
-
-                if (empty($fetchMessage)) {
-                    Coroutine::sleep($this->getConfig()->getRefreshIntervalMs() / 1000);
-                }
-
-            } catch (Exception\ErrorCodeException $codeException) {
-                $this->getAssignment()->setJoinFuture(true);
-//                echo '----------------group 成员 或者 partition数量变更 需要重新入组与分配partition'.PHP_EOL;
-            } catch (\Throwable $throwable) {
-                throw  $throwable;
-            } finally {
-                --$running;
+                $this->initiateJoinGroup();
             }
+
+            $this->heartbeat();
+
+            $this->getListOffset();
+
+            $this->fetchOffset();
+
+            $fetchMessage = $this->fetchMsg();
+
+            $this->commit();
+
+            if (empty($fetchMessage)) {
+                Coroutine::sleep($this->getConfig()->getRefreshIntervalMs() / 1000);
+            }
+        } catch (Exception\ErrorCodeException $codeException) {
+            $this->getAssignment()->setJoinFuture(true);
+            if ($isAutoRetry) {
+                $retryTimes--;
+                if ($retryTimes >= 0) {
+                    $this->do($running, $retryTimes);
+                }
+            } else {
+                if (is_callable($this->retryCallable)) {
+                    /**
+                     * @returns string errMsg
+                     * @returns array kafkaMsg (if it exists or has been obtained)
+                     */
+                    call_user_func($this->retryCallable, $codeException->getMessage(), $this->messages);
+                }
+            }
+        } catch (\Throwable $throwable) {
+            throw  $throwable;
+        } finally {
+            --$running;
         }
     }
 
@@ -130,7 +162,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function syncMeta()
+    public function syncMeta ()
     {
         $this->setBroker($this->getSyncMeta()->syncMeta());
     }
@@ -140,7 +172,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function getGroupNodeId()
+    public function getGroupNodeId ()
     {
         $results = $this->getGroup()->getGroupBrokerId();
         if (!isset($results['errorCode'], $results['nodeId'])
@@ -156,7 +188,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function initiateJoinGroup()
+    public function initiateJoinGroup ()
     {
         if ($this->getAssignment()->isJoinFuture()) {
             $isLeader = $this->joinGroup();
@@ -170,7 +202,7 @@ class Process extends BaseProcess
      * @throws Exception\Exception
      * @throws Exception\ConnectionException
      */
-    protected function joinGroup(): bool
+    protected function joinGroup (): bool
     {
         $result = $this->getGroup()->joinGroup();
         if (isset($result['errorCode']) && $result['errorCode'] !== Protocol::NO_ERROR) {
@@ -190,7 +222,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    protected function syncGroup(bool $isLeader)
+    protected function syncGroup (bool $isLeader)
     {
         if ($isLeader) {
             $result = $this->getGroup()->syncGroupOnJoinLeader();
@@ -201,17 +233,17 @@ class Process extends BaseProcess
         if (isset($result['errorCode']) && $result['errorCode'] !== Protocol::NO_ERROR) {
             $this->stateConvert($result['errorCode']);
         }
-        $topics = $this->getBroker()->getTopics();
+        $topics         = $this->getBroker()->getTopics();
         $brokerToTopics = [];
         foreach ($result['partitionAssignments'] as $topic) {
             foreach ($topic['partitions'] as $partId) {
                 if (isset($topics[$topic['topicName']][$partId])) {
-                    $brokerId = $topics[$topic['topicName']][$partId];
-                    $brokerToTopics[$brokerId] = $brokerToTopics[$brokerId] ?? [];
-                    $topicInfo = $brokerToTopics[$brokerId][$topic['topicName']] ?? [];
-                    $topicInfo['topic_name'] = $topic['topicName'];
-                    $topicInfo['partitions'] = $topicInfo['partitions'] ?? [];
-                    $topicInfo['partitions'][] = $partId;
+                    $brokerId                                       = $topics[$topic['topicName']][$partId];
+                    $brokerToTopics[$brokerId]                      = $brokerToTopics[$brokerId] ?? [];
+                    $topicInfo                                      = $brokerToTopics[$brokerId][$topic['topicName']] ?? [];
+                    $topicInfo['topic_name']                        = $topic['topicName'];
+                    $topicInfo['partitions']                        = $topicInfo['partitions'] ?? [];
+                    $topicInfo['partitions'][]                      = $partId;
                     $brokerToTopics[$brokerId][$topic['topicName']] = $topicInfo;
                 }
             }
@@ -228,11 +260,11 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function getListOffset()
+    public function getListOffset ()
     {
         // 获取分区的offset列表
-        $results = $this->getOffset()->listOffset();
-        $offsets = $this->getAssignment()->getOffsets();
+        $results     = $this->getOffset()->listOffset();
+        $offsets     = $this->getAssignment()->getOffsets();
         $lastOffsets = $this->getAssignment()->getLastOffsets();
 
         foreach ($results as $topic) {
@@ -242,7 +274,7 @@ class Process extends BaseProcess
                     continue;
                 }
 
-                $offsets[$topic['topicName']][$part['partition']] = end($part['offsets']);
+                $offsets[$topic['topicName']][$part['partition']]     = end($part['offsets']);
                 $lastOffsets[$topic['topicName']][$part['partition']] = $part['offsets'][0];
             }
         }
@@ -255,7 +287,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function heartbeat()
+    public function heartbeat ()
     {
         $result = $this->getHeartbeat()->heartbeat();
         if (isset($result['errorCode']) && $result['errorCode'] !== Protocol::NO_ERROR) {
@@ -268,9 +300,9 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function fetchOffset()
+    public function fetchOffset ()
     {
-        $result = $this->getOffset()->fetchOffset();
+        $result  = $this->getOffset()->fetchOffset();
         $offsets = $this->getAssignment()->getFetchOffsets();
         foreach ($result as $topic) {
             foreach ($topic['partitions'] as $part) {
@@ -285,7 +317,7 @@ class Process extends BaseProcess
         $this->getAssignment()->setFetchOffsets($offsets);
 
         $consumerOffsets = $this->getAssignment()->getConsumerOffsets();
-        $lastOffsets = $this->getAssignment()->getLastOffsets();
+        $lastOffsets     = $this->getAssignment()->getLastOffsets();
 
         if (empty($consumerOffsets)) {
             $consumerOffsets = $this->getAssignment()->getFetchOffsets();
@@ -307,7 +339,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function fetchMsg()
+    public function fetchMsg ()
     {
         $results = $this->getFetch()->fetch($this->getAssignment()->getConsumerOffsets());
         if (!isset($results['topics'])) {
@@ -319,7 +351,7 @@ class Process extends BaseProcess
                 if ($part['errorCode'] !== 0) {
                     $this->stateConvert($part['errorCode'], [
                         $topic['topicName'],
-                        $part['partition']
+                        $part['partition'],
                     ]);
                     continue;
                 }
@@ -350,7 +382,7 @@ class Process extends BaseProcess
      * @throws Exception\ErrorCodeException
      * @throws Exception\Exception
      */
-    public function commit()
+    public function commit ()
     {
         // 先消费，再提交
         if ($this->getConfig()->getConsumeMode() === ConsumerConfig::CONSUME_BEFORE_COMMIT_OFFSET) {
@@ -377,11 +409,11 @@ class Process extends BaseProcess
     }
 
     /**
-     * @param int $errorCode
+     * @param int        $errorCode
      * @param array|null $context
      * @throws Exception\ErrorCodeException
      */
-    protected function stateConvert(int $errorCode, ?array $context = null)
+    protected function stateConvert (int $errorCode, ?array $context = null)
     {
         $recoverCodes = [
             Protocol::UNKNOWN_TOPIC_OR_PARTITION,
@@ -414,7 +446,7 @@ class Process extends BaseProcess
         }
         if ($errorCode === Protocol::OFFSET_OUT_OF_RANGE) {
             $resetOffset = $this->getConfig()->getOffsetReset();
-            $offsets = $resetOffset === 'latest' ?
+            $offsets     = $resetOffset === 'latest' ?
                 $this->getAssignment()->getLastOffsets() : $this->getAssignment()->getOffsets();
 
             [$topic, $partId] = $context;
@@ -429,7 +461,7 @@ class Process extends BaseProcess
     /**
      * 消费消息
      */
-    private function consumeMessage(): void
+    private function consumeMessage (): void
     {
         $concurrentNumber = $this->getConfig()->getConcurrentNumber();
 
@@ -437,7 +469,7 @@ class Process extends BaseProcess
             foreach ($this->messages as $topic => $value) {
                 foreach ($value as $partition => $messages) {
                     foreach ($messages as $message) {
-                        call_user_func($this->consumer,$topic, $partition, $message);
+                        call_user_func($this->consumer, $topic, $partition, $message);
                     }
                 }
             }
@@ -448,10 +480,10 @@ class Process extends BaseProcess
 
     /**
      * @param \Throwable $throwable
-     * @param mixed ...$args
+     * @param mixed      ...$args
      * @throws \Throwable
      */
-    protected function onException(\Throwable $throwable, ...$args)
+    protected function onException (\Throwable $throwable, ...$args)
     {
         throw $throwable;
     }
@@ -460,7 +492,7 @@ class Process extends BaseProcess
      * @return Kafka\SyncMeta\Process
      * @throws Exception\Exception
      */
-    public function getSyncMeta(): Kafka\SyncMeta\Process
+    public function getSyncMeta (): Kafka\SyncMeta\Process
     {
         if ($this->syncMeta === null) {
             $this->syncMeta = new Kafka\SyncMeta\Process($this->getConfig());
@@ -472,7 +504,7 @@ class Process extends BaseProcess
      * @return Kafka\Group\Process
      * @throws Exception\Exception
      */
-    public function getGroup(): Kafka\Group\Process
+    public function getGroup (): Kafka\Group\Process
     {
         if ($this->group === null) {
             $this->group = new Kafka\Group\Process($this->getConfig(), $this->getAssignment(), $this->getBroker());
@@ -484,7 +516,7 @@ class Process extends BaseProcess
      * @return Kafka\Fetch\Process
      * @throws Exception\Exception
      */
-    public function getFetch(): Kafka\Fetch\Process
+    public function getFetch (): Kafka\Fetch\Process
     {
         if ($this->fetch === null) {
             $this->fetch = new Kafka\Fetch\Process($this->getConfig(), $this->getAssignment(), $this->getBroker());
@@ -496,7 +528,7 @@ class Process extends BaseProcess
      * @return Kafka\Offset\Process
      * @throws Exception\Exception
      */
-    public function getOffset(): Kafka\Offset\Process
+    public function getOffset (): Kafka\Offset\Process
     {
         if ($this->offset === null) {
             $this->offset = new Kafka\Offset\Process($this->getConfig(), $this->getAssignment(), $this->getBroker());
@@ -508,7 +540,7 @@ class Process extends BaseProcess
      * @return Kafka\Heartbeat\Process
      * @throws Exception\Exception
      */
-    public function getHeartbeat(): Kafka\Heartbeat\Process
+    public function getHeartbeat (): Kafka\Heartbeat\Process
     {
         if ($this->heartbeat === null) {
             $this->heartbeat = new Kafka\Heartbeat\Process($this->getConfig(), $this->getAssignment(), $this->getBroker());
@@ -519,7 +551,7 @@ class Process extends BaseProcess
     /**
      * @return Assignment
      */
-    public function getAssignment(): Assignment
+    public function getAssignment (): Assignment
     {
         if ($this->assignment === null) {
             $this->assignment = new Assignment();

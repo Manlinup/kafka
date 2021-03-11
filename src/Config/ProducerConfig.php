@@ -5,12 +5,12 @@
  * Date: 2019/8/17
  * Time: 下午11:06
  */
+
 namespace EasySwoole\Kafka\Config;
 
-use EasySwoole\Component\Singleton;
-use EasySwoole\Kafka\Protocol\Protocol;
-use EasySwoole\Kafka\Protocol\Produce;
 use EasySwoole\Kafka\Exception;
+use EasySwoole\Kafka\Protocol\Produce;
+use EasySwoole\Kafka\Protocol\Protocol;
 
 /**
  * Class ProducerConfig
@@ -30,18 +30,18 @@ class ProducerConfig extends Config
     ];
 
     protected static $defaults = [
-        'requiredAck'       => 1,// -1,阻塞等待服务端所有副本同步后发送response，0 服务端不发送response，1 服务端写入日志后发送response
-        'timeout'           => 5000,
-        'requestTimeout'    => 6000,//todo
-        'produceInterval'   => 100,//todo
-        'compression'       => Protocol::COMPRESSION_NONE,
+        'requiredAck'     => 1,// -1,阻塞等待服务端所有副本同步后发送response，0 服务端不发送response，1 服务端写入日志后发送response
+        'timeout'         => 5000,
+        'requestTimeout'  => 6000,//todo
+        'produceInterval' => 100,//todo
+        'compression'     => Protocol::COMPRESSION_NONE,
     ];
 
     /**
      * @param int $requestTimeout
      * @throws Exception\Config
      */
-    public function setRequestTimeout(int $requestTimeout): void
+    public function setRequestTimeout (int $requestTimeout): void
     {
         if ($requestTimeout < 1 || $requestTimeout > 900000) {
             throw new Exception\Config("Set Request timeout value is invalid, must set it 1 .. 900000.");
@@ -54,7 +54,7 @@ class ProducerConfig extends Config
      * @param int $produceInterval
      * @throws Exception\Config
      */
-    public function setProduceInterval(int $produceInterval): void
+    public function setProduceInterval (int $produceInterval): void
     {
         if ($produceInterval < 1 || $produceInterval > 900000) {
             throw new Exception\Config("Set produce interval timeout value is invalid, must set it 1.. 900000.");
@@ -67,7 +67,7 @@ class ProducerConfig extends Config
      * @param int $timeout
      * @throws Exception\Config
      */
-    public function setTimeout(int $timeout): void
+    public function setTimeout (int $timeout): void
     {
         if ($timeout < 1 || $timeout > 900000) {
             throw new Exception\Config("Set timeout is invalid, mudt set it 1 .. 900000.");
@@ -80,7 +80,7 @@ class ProducerConfig extends Config
      * @param int $requiredAck
      * @throws Exception\Config
      */
-    public function setRequiredAck(int $requiredAck): void
+    public function setRequiredAck (int $requiredAck): void
     {
         if ($requiredAck < -1 || $requiredAck > 900000) {
             throw new Exception\Config("Set required ack value is invalid, must set it -1 .. 10000.");
@@ -93,9 +93,9 @@ class ProducerConfig extends Config
      * @param int $compression
      * @throws Exception\Config
      */
-    public function setCompression(int $compression): void
+    public function setCompression (int $compression): void
     {
-        if (! in_array($compression, self::COMPRESSION_OPTIONS, true)) {
+        if (!in_array($compression, self::COMPRESSION_OPTIONS, true)) {
             throw new Exception\Config(
                 "Compression must be one the EasySwoole\Kafka\Protocol\Produce::COMPRESSION_OPTIONS_* constants."
             );

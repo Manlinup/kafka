@@ -1,11 +1,12 @@
 <?php
+
 namespace EasySwoole\Kafka;
 
 use EasySwoole\Kafka\Config\Config;
 use EasySwoole\Kafka\Config\ConsumerConfig;
 use EasySwoole\Kafka\Config\ProducerConfig;
 
-class Kafka
+class Queue
 {
 
     private $consumerConfig;
@@ -16,7 +17,7 @@ class Kafka
 
     private $producer;
 
-    public function __construct(Config $config)
+    public function __construct (Config $config)
     {
         if ($config instanceof ConsumerConfig) {
             $this->consumerConfig = $config;
@@ -29,7 +30,7 @@ class Kafka
      * @return Consumer
      * @throws Exception\Exception
      */
-    public function consumer()
+    public function consumer (): Consumer
     {
         if ($this->consumer === null) {
             $this->consumer = new Consumer($this->consumerConfig);
@@ -41,7 +42,7 @@ class Kafka
      * @return Producer
      * @throws Exception\Exception
      */
-    public function producer()
+    public function producer (): Producer
     {
         if ($this->producer === null) {
             $this->producer = new Producer($this->producerConfig);

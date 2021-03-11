@@ -2,8 +2,8 @@
 
 namespace EasySwoole\Kafka\Config;
 
-use EasySwoole\Spl\SplBean;
 use EasySwoole\Kafka\Exception;
+use EasySwoole\Spl\SplBean;
 
 /**
  * Class Config
@@ -27,6 +27,8 @@ use EasySwoole\Kafka\Exception;
  * @method string getSslPassPhrase()
  * @method string getSslCafile()
  * @method string getSslPeerName()
+ * @method int getRetryTimes()
+ * @method bool getAutoRetry()
  */
 class Config extends SplBean
 {
@@ -57,26 +59,31 @@ class Config extends SplBean
     protected static $options = [];
 
     private static $defaults = [
-        'clientId'                      => 'Easyswoole-kafka',
-        'brokerVersion'                 => '0.10.1.0',
-        'metadataBrokerList'            => '',
-        'requestTimeoutMs'              => 60000,// todo
-        'refreshIntervalMs'             => 1000,
-        'securityProtocol'              => self::SECURITY_PROTOCOL_PLAINTEXT,
-        'saslMechanism'                 => self::SASL_MECHANISMS_PLAIN,
-        'saslUsername'                  => '',
-        'saslPassword'                  => '',
-        'saslKeytab'                    => '',
-        'saslPrincipal'                 => '',
-
+        'clientId'           => 'Easyswoole-kafka',
+        'brokerVersion'      => '0.10.1.0',
+        'metadataBrokerList' => '',
+        'requestTimeoutMs'   => 60000,// todo
+        'refreshIntervalMs'  => 1000,
+        'securityProtocol'   => self::SECURITY_PROTOCOL_PLAINTEXT,
+        'saslMechanism'      => self::SASL_MECHANISMS_PLAIN,
+        'saslUsername'       => '',
+        'saslPassword'       => '',
+        'saslKeytab'         => '',
+        'saslPrincipal'      => '',
         // if use ssl connect
-        'sslEnable'                     => false,
-        'sslLocalCert'                  => '',
-        'sslLocalPk'                    => '',
-        'sslVerifyPeer'                 => false,
-        'sslPassPhrase'                 => '',
-        'sslCafile'                     => '',
-        'sslPeerName'                   => '',
+        'sslEnable'          => false,
+        'sslLocalCert'       => '',
+        'sslLocalPk'         => '',
+        'sslVerifyPeer'      => false,
+        'sslPassPhrase'      => '',
+        'sslCafile'          => '',
+        'sslPeerName'        => '',
+        // retry times
+        'retryTimes'         => 3,
+        // if true, will automatically retry as many times as retryTimes,
+        // else can callback that user provided.
+        'autoRetry'          => true,
+
     ];
 
     /**
@@ -84,12 +91,12 @@ class Config extends SplBean
      * @param array  $args
      * @return bool|mixed
      */
-    public function __call(string $name, array $args)
+    public function __call (string $name, array $args)
     {
         $isGetter = strpos($name, 'get') === 0 || strpos($name, 'iet') === 0;
         $isSetter = strpos($name, 'set') === 0;
 
-        if (! $isGetter && ! $isSetter) {
+        if (!$isGetter && !$isSetter) {
             return false;
         }
 
@@ -127,7 +134,7 @@ class Config extends SplBean
     /**
      * clear options
      */
-    public function clear(): void
+    public function clear (): void
     {
         static::$options = [];
     }
@@ -136,7 +143,7 @@ class Config extends SplBean
      * @param string $client
      * @throws Exception\Config
      */
-    public function setClientId(string $client): void
+    public function setClientId (string $client): void
     {
         $client = trim($client);
 
@@ -151,7 +158,7 @@ class Config extends SplBean
      * @param string $version
      * @throws Exception\Config
      */
-    public function setBrokerVersion(string $version): void
+    public function setBrokerVersion (string $version): void
     {
         $version = trim($version);
 
@@ -166,7 +173,7 @@ class Config extends SplBean
      * @param string $brokerList
      * @throws Exception\Config
      */
-    public function setMetadataBrokerList(string $brokerList): void
+    public function setMetadataBrokerList (string $brokerList): void
     {
         $brokerList = trim($brokerList);
 
@@ -188,7 +195,7 @@ class Config extends SplBean
      * @param int $requestTimeoutMs
      * @throws Exception\Config
      */
-    public function setRequestTimeoutMs(int $requestTimeoutMs): void
+    public function setRequestTimeoutMs (int $requestTimeoutMs): void
     {
         if ($requestTimeoutMs < 10 || $requestTimeoutMs > 900000) {
             throw new Exception\Config("Set request timeout value is invalid, must set it 10 .. 900000.");
@@ -201,7 +208,7 @@ class Config extends SplBean
      * @param int $refreshIntervalMs
      * @throws Exception\Config
      */
-    public function setRefreshIntervalMs(int $refreshIntervalMs): void
+    public function setRefreshIntervalMs (int $refreshIntervalMs): void
     {
         if ($refreshIntervalMs < 10 || $refreshIntervalMs > 360000) {
             throw new Exception\Config("Set refresh interval value is invalid, must set it 10 .. 360000.");
@@ -214,9 +221,9 @@ class Config extends SplBean
      * @param string $securityProtocol
      * @throws Exception\Config
      */
-    public function setSecurityProtocol(string $securityProtocol): void
+    public function setSecurityProtocol (string $securityProtocol): void
     {
-        if (! in_array($securityProtocol, self::ALLOW_SECURITY_PROTOCOLS, true)) {
+        if (!in_array($securityProtocol, self::ALLOW_SECURITY_PROTOCOLS, true)) {
             throw new Exception\Config("Invalid security protocol given.");
         }
 
@@ -227,7 +234,7 @@ class Config extends SplBean
      * @param string $username
      * @throws Exception\Config
      */
-    public function setSaslUsername(string $username): void
+    public function setSaslUsername (string $username): void
     {
         $username = trim($username);
         if ($username === '') {
@@ -241,7 +248,7 @@ class Config extends SplBean
      * @param string $password
      * @throws Exception\Config
      */
-    public function setSaslPassword(string $password): void
+    public function setSaslPassword (string $password): void
     {
         $password = trim($password);
         if ($password === '') {
@@ -255,7 +262,7 @@ class Config extends SplBean
      * @param string $principal
      * @throws Exception\Config
      */
-    public function setSaslPrincipal(string $principal): void
+    public function setSaslPrincipal (string $principal): void
     {
         $principal = trim($principal);
         if ($principal === '') {
@@ -269,9 +276,9 @@ class Config extends SplBean
      * @param string $keytab
      * @throws Exception\Config
      */
-    public function setSaslKeytab(string $keytab): void
+    public function setSaslKeytab (string $keytab): void
     {
-        if (! is_file($keytab)) {
+        if (!is_file($keytab)) {
             throw new Exception\Config("Set sasl gssapi keytab file is invalid.");
         }
 
@@ -282,9 +289,9 @@ class Config extends SplBean
      * @param string $mechnism
      * @throws Exception\Config
      */
-    public function setSaslMechanism(string $mechnism): void
+    public function setSaslMechanism (string $mechnism): void
     {
-        if (! in_array($mechnism, self::ALLOW_MECHANISMS, true)) {
+        if (!in_array($mechnism, self::ALLOW_MECHANISMS, true)) {
             throw new Exception\Config("Invalid security sasl mechanism given");
         }
 
@@ -299,9 +306,9 @@ class Config extends SplBean
      * @param bool $enable
      * @throws Exception\Config
      */
-    public function setSslEnable(bool $enable): void
+    public function setSslEnable (bool $enable): void
     {
-        if (! is_bool($enable)) {
+        if (!is_bool($enable)) {
             throw new Exception\Config("Invalid ss enbale given");
         }
 
@@ -312,9 +319,9 @@ class Config extends SplBean
      * @param string $localCert
      * @throws Exception\Config
      */
-    public function setSslLocalCert(string $localCert): void
+    public function setSslLocalCert (string $localCert): void
     {
-        if (! is_file($localCert)) {
+        if (!is_file($localCert)) {
             throw new Exception\Config("Set ssl local cert file is invalid.");
         }
 
@@ -325,9 +332,9 @@ class Config extends SplBean
      * @param string $localPk
      * @throws Exception\Config
      */
-    public function setSslLocalPk(string $localPk): void
+    public function setSslLocalPk (string $localPk): void
     {
-        if (! is_file($localPk)) {
+        if (!is_file($localPk)) {
             throw new Exception\Config("Set ssl local private key file is invalid.");
         }
 
@@ -338,9 +345,9 @@ class Config extends SplBean
      * @param bool $verifyPeer
      * @throws Exception\Config
      */
-    public function setSslVerifyPeer(bool $verifyPeer): void
+    public function setSslVerifyPeer (bool $verifyPeer): void
     {
-        if (! is_bool($verifyPeer)) {
+        if (!is_bool($verifyPeer)) {
             throw new Exception\Config("Set ssl verify peer values is invalid, must is not empty string.");
         }
 
@@ -351,7 +358,7 @@ class Config extends SplBean
      * @param string $passPhrase
      * @throws Exception\Config
      */
-    public function setSslPassPhrase(string $passPhrase): void
+    public function setSslPassPhrase (string $passPhrase): void
     {
         $passPhrase = trim($passPhrase);
         if ($passPhrase === '') {
@@ -365,9 +372,9 @@ class Config extends SplBean
      * @param string $cafile
      * @throws Exception\Config
      */
-    public function setSslCafile(string $cafile): void
+    public function setSslCafile (string $cafile): void
     {
-        if (! is_file($cafile)) {
+        if (!is_file($cafile)) {
             throw new Exception\Config("Set ssl ca file is invalid.");
         }
 
@@ -378,7 +385,7 @@ class Config extends SplBean
      * @param string $peerName
      * @throws Exception\Config
      */
-    public function setSslPeerName(string $peerName): void
+    public function setSslPeerName (string $peerName): void
     {
         $peerName = trim($peerName);
         if ($peerName === '') {

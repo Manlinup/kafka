@@ -21,7 +21,7 @@ go(function () {
     $config->setTopics(['test']);
     $config->setOffsetReset('earliest');
 
-    $kafka = new Kafka($config);
+    $kafka = new \EasySwoole\Kafka\Queue($config);
     // 设置消费回调
     $func = function ($topic, $partition, $message) {
         var_dump($topic);
